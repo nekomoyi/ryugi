@@ -275,6 +275,44 @@ describe('ryugi-artifacts start', () => {
     expect(run(['stop', '--project-dir', project], env).out.status).toBe('stopped');
   }, 30000);
 
+  test.skipIf(process.platform !== 'darwin')(
+    'a sandboxed start where ps and listen fail with EPERM reuses the running server without clobbering its state',
+    () => {
+      const project = newProject();
+      const first = run(['start', '--project-dir', project]).out;
+      const firstPid = Number(fs.readFileSync(path.join(stateOf(project), 'server.pid'), 'utf8'));
+      const sandboxed = spawnSync(
+        'sandbox-exec',
+        [
+          '-p',
+          '(version 1)(allow default)(deny network*)',
+          process.execPath,
+          cli,
+          'start',
+          '--project-dir',
+          project,
+        ],
+        {
+          encoding: 'utf8',
+          timeout: 15000,
+          env: { ...withoutAgent(), ARTIFACTS_OPEN: '0' },
+        },
+      );
+      expect(sandboxed.status).toBe(0);
+      expect(JSON.parse(sandboxed.stdout.trim().split('\n').pop()!)).toMatchObject({
+        url: first.url,
+        reused: true,
+      });
+      const second = run(['start', '--project-dir', project]).out;
+      expect(second.url).toBe(first.url);
+      expect(second.reused).toBe(true);
+      expect(Number(fs.readFileSync(path.join(stateOf(project), 'server.pid'), 'utf8'))).toBe(
+        firstPid,
+      );
+    },
+    30000,
+  );
+
   test('a managed start replaces a running server from another release, keeping its link', () => {
     const project = newProject();
     const first = run(['start', '--project-dir', project], {

@@ -12,13 +12,14 @@ export function alive(pid: number) {
   }
 }
 
-function commandLine(pid: number): string[] | null {
+function commandLine(pid: number): string[] | 'eperm' | null {
   try {
     return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
   } catch {}
   const direct = spawnSync('ps', ['-ww', '-p', String(pid), '-o', 'command='], {
     encoding: 'utf8',
   });
+  if ((direct.error as NodeJS.ErrnoException | undefined)?.code === 'EPERM') return 'eperm';
   if (direct.status === 0 && direct.stdout.trim()) return direct.stdout.trim().split(/\s+/);
   const full = spawnSync('ps', ['-f', '-p', String(pid)], { encoding: 'utf8' });
   if (full.status !== 0) return null;
@@ -40,13 +41,14 @@ function windowsNodeAt(pid: number) {
 export function hasServerId(pid: number, id: string) {
   if (!alive(pid)) return false;
   if (process.platform === 'win32') return windowsNodeAt(pid);
-  return commandLine(pid)?.includes(`--artifacts-server-id=${id}`) ?? false;
+  const args = commandLine(pid);
+  return args === 'eperm' || (args?.includes(`--artifacts-server-id=${id}`) ?? false);
 }
 
 export function parentOf(pid: number): number | null {
   if (process.platform === 'win32') return null;
   const result = spawnSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' });
-  const parent = Number(result.stdout.trim());
+  const parent = Number(result.stdout?.trim());
   return Number.isInteger(parent) && parent > 1 ? parent : null;
 }
 
